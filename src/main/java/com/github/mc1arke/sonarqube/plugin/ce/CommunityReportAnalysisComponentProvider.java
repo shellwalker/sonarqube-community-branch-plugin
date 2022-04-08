@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Michael Clarke
+ * Copyright (C) 2019-2022 Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,7 +22,9 @@ import com.github.mc1arke.sonarqube.plugin.almclient.DefaultLinkHeaderReader;
 import com.github.mc1arke.sonarqube.plugin.almclient.azuredevops.DefaultAzureDevopsClientFactory;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.DefaultBitbucketClientFactory;
 import com.github.mc1arke.sonarqube.plugin.almclient.github.DefaultGithubClientFactory;
+import com.github.mc1arke.sonarqube.plugin.almclient.github.v3.DefaultUrlConnectionProvider;
 import com.github.mc1arke.sonarqube.plugin.almclient.github.v3.RestApplicationAuthenticationProvider;
+import com.github.mc1arke.sonarqube.plugin.almclient.github.v4.DefaultGraphqlProvider;
 import com.github.mc1arke.sonarqube.plugin.almclient.gitlab.DefaultGitlabClientFactory;
 import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.PostAnalysisIssueVisitor;
 import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.PullRequestPostAnalysisTask;
@@ -30,6 +32,7 @@ import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.azuredevops.AzureDevOp
 import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.bitbucket.BitbucketPullRequestDecorator;
 import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.github.GithubPullRequestDecorator;
 import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.gitlab.GitlabMergeRequestDecorator;
+import com.github.mc1arke.sonarqube.plugin.ce.pullrequest.markup.MarkdownFormatterFactory;
 import org.sonar.ce.task.projectanalysis.container.ReportAnalysisComponentProvider;
 
 import java.util.Arrays;
@@ -44,6 +47,7 @@ public class CommunityReportAnalysisComponentProvider implements ReportAnalysisC
     public List<Object> getComponents() {
         return Arrays.asList(CommunityBranchLoaderDelegate.class, PullRequestPostAnalysisTask.class,
                              PostAnalysisIssueVisitor.class, DefaultLinkHeaderReader.class,
+                             MarkdownFormatterFactory.class, DefaultGraphqlProvider.class, DefaultUrlConnectionProvider.class,
                              DefaultGithubClientFactory.class, RestApplicationAuthenticationProvider.class, GithubPullRequestDecorator.class,
                              DefaultBitbucketClientFactory.class, BitbucketPullRequestDecorator.class,
                              DefaultGitlabClientFactory.class, GitlabMergeRequestDecorator.class,
