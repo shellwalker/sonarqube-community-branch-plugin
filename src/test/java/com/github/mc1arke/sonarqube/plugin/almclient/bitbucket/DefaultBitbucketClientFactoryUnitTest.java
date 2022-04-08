@@ -40,7 +40,9 @@ public class DefaultBitbucketClientFactoryUnitTest {
 
         // when
         when(settings.getEncryption()).thenReturn(encryption);
-        BitbucketClient client = new DefaultBitbucketClientFactory(settings, () -> builder).createClient(projectAlmSettingDto, almSettingDto);
+        HttpClientBuilderFactory httpClientBuilderFactory = mock(HttpClientBuilderFactory.class);
+        when(httpClientBuilderFactory.createClientBuilder()).then(i -> builder);
+        BitbucketClient client = new DefaultBitbucketClientFactory(settings, httpClientBuilderFactory).createClient(projectAlmSettingDto, almSettingDto);
 
         // then
         assertTrue(client instanceof BitbucketCloudClient);
@@ -61,7 +63,9 @@ public class DefaultBitbucketClientFactoryUnitTest {
 
         // when
         when(settings.getEncryption()).thenReturn(encryption);
-        BitbucketClient client = new DefaultBitbucketClientFactory(settings, () -> mock(OkHttpClient.Builder.class, Mockito.RETURNS_DEEP_STUBS)).createClient(projectAlmSettingDto, almSettingDto);
+        HttpClientBuilderFactory httpClientBuilderFactory = mock(HttpClientBuilderFactory.class);
+        when(httpClientBuilderFactory.createClientBuilder()).then(i -> mock(OkHttpClient.Builder.class, Mockito.RETURNS_DEEP_STUBS));
+        BitbucketClient client = new DefaultBitbucketClientFactory(settings, httpClientBuilderFactory).createClient(projectAlmSettingDto, almSettingDto);
 
         // then
         assertTrue(client instanceof BitbucketServerClient);

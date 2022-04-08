@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Marvin Wichmann, Michael Clarke
+ * Copyright (C) 2020-2022 Marvin Wichmann, Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,7 @@ import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsight
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsReport;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.DataValue;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.ReportData;
+import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.ReportStatus;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.Repository;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.cloud.BitbucketCloudConfiguration;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.cloud.CloudAnnotation;
@@ -34,11 +35,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import org.sonar.api.ce.posttask.QualityGate;
 import org.sonar.api.utils.log.Logger;
 import org.sonar.api.utils.log.Loggers;
-import org.sonar.db.alm.setting.AlmSettingDto;
-import org.sonar.db.alm.setting.ProjectAlmSettingDto;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -64,14 +62,16 @@ class BitbucketCloudClient implements BitbucketClient {
 
     private final ObjectMapper objectMapper;
     private final OkHttpClient okHttpClient;
+    private final BitbucketCloudConfiguration bitbucketCloudConfiguration;
 
     BitbucketCloudClient(BitbucketCloudConfiguration config, ObjectMapper objectMapper, OkHttpClient.Builder baseClientBuilder) {
-        this(objectMapper, createAuthorisingClient(baseClientBuilder, negotiateBearerToken(config, objectMapper, baseClientBuilder.build())));
+        this(objectMapper, createAuthorisingClient(baseClientBuilder, negotiateBearerToken(config, objectMapper, baseClientBuilder.build())), config);
     }
 
-    BitbucketCloudClient(ObjectMapper objectMapper, OkHttpClient okHttpClient) {
+    BitbucketCloudClient(ObjectMapper objectMapper, OkHttpClient okHttpClient, BitbucketCloudConfiguration bitbucketCloudConfiguration) {
         this.objectMapper = objectMapper;
         this.okHttpClient = okHttpClient;
+        this.bitbucketCloudConfiguration = bitbucketCloudConfiguration;
     }
 
     private static String negotiateBearerToken(BitbucketCloudConfiguration bitbucketCloudConfiguration, ObjectMapper objectMapper, OkHttpClient okHttpClient) {
@@ -106,7 +106,7 @@ class BitbucketCloudClient implements BitbucketClient {
     @Override
     public CodeInsightsReport createCodeInsightsReport(List<ReportData> reportData, String reportDescription,
                                                        Instant creationDate, String dashboardUrl, String logoUrl,
-                                                       QualityGate.Status status) {
+                                                       ReportStatus status) {
         return new CloudCreateReportRequest(
                 reportData,
                 reportDescription,
@@ -116,16 +116,17 @@ class BitbucketCloudClient implements BitbucketClient {
                 dashboardUrl, // you need to change this to a real https URL for local debugging since localhost will get declined by the API
                 logoUrl,
                 "COVERAGE",
-                QualityGate.Status.ERROR.equals(status) ? "FAILED" : "PASSED"
+                ReportStatus.FAILED == status ? "FAILED" : "PASSED"
         );
     }
 
     @Override
-    public void deleteAnnotations(String project, String repo, String commitSha) {
+    public void deleteAnnotations(String commitSha) {
         // not needed here.
     }
 
-    public void uploadAnnotations(String project, String repository, String commit, Set<CodeInsightsAnnotation> baseAnnotations) throws IOException {
+    @Override
+    public void uploadAnnotations(String commit, Set<CodeInsightsAnnotation> baseAnnotations) throws IOException {
         Set<CloudAnnotation> annotations = baseAnnotations.stream().map(CloudAnnotation.class::cast).collect(Collectors.toSet());
 
         if (annotations.isEmpty()) {
@@ -134,7 +135,7 @@ class BitbucketCloudClient implements BitbucketClient {
 
         Request req = new Request.Builder()
                 .post(RequestBody.create(objectMapper.writeValueAsString(annotations), APPLICATION_JSON_MEDIA_TYPE))
-                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s/annotations", project, repository, commit, REPORT_KEY))
+                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s/annotations", bitbucketCloudConfiguration.getProject(), bitbucketCloudConfiguration.getRepository(), commit, REPORT_KEY))
                 .build();
 
         LOGGER.info("Creating annotations on bitbucket cloud");
@@ -151,10 +152,10 @@ class BitbucketCloudClient implements BitbucketClient {
     }
 
     @Override
-    public void uploadReport(String project, String repository, String commit, CodeInsightsReport codeInsightReport) throws IOException {
-        deleteExistingReport(project, repository, commit);
+    public void uploadReport(String commit, CodeInsightsReport codeInsightReport) throws IOException {
+        deleteExistingReport(commit);
 
-        String targetUrl = format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s", project, repository, commit, REPORT_KEY);
+        String targetUrl = format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s", bitbucketCloudConfiguration.getProject(), bitbucketCloudConfiguration.getRepository(), commit, REPORT_KEY);
         String body = objectMapper.writeValueAsString(codeInsightReport);
         Request req = new Request.Builder()
                 .put(RequestBody.create(body, APPLICATION_JSON_MEDIA_TYPE))
@@ -180,20 +181,10 @@ class BitbucketCloudClient implements BitbucketClient {
     }
 
     @Override
-    public String resolveProject(AlmSettingDto almSettingDto, ProjectAlmSettingDto projectAlmSettingDto) {
-        return almSettingDto.getAppId();
-    }
-
-    @Override
-    public String resolveRepository(AlmSettingDto almSettingDto, ProjectAlmSettingDto projectAlmSettingDto) {
-        return projectAlmSettingDto.getAlmRepo();
-    }
-
-    @Override
-    public Repository retrieveRepository(String project, String repo) throws IOException {
+    public Repository retrieveRepository() throws IOException {
         Request req = new Request.Builder()
                 .get()
-                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s", project, repo))
+                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s", bitbucketCloudConfiguration.getProject(), bitbucketCloudConfiguration.getRepository()))
                 .build();
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
@@ -205,10 +196,10 @@ class BitbucketCloudClient implements BitbucketClient {
         }
     }
 
-    void deleteExistingReport(String project, String repository, String commit) throws IOException {
+    void deleteExistingReport(String commit) throws IOException {
         Request req = new Request.Builder()
                 .delete()
-                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s", project, repository, commit, REPORT_KEY))
+                .url(format("https://api.bitbucket.org/2.0/repositories/%s/%s/commit/%s/reports/%s", bitbucketCloudConfiguration.getProject(), bitbucketCloudConfiguration.getRepository(), commit, REPORT_KEY))
                 .build();
 
         LOGGER.info("Deleting existing reports on bitbucket cloud");

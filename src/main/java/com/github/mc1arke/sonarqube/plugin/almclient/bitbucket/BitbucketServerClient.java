@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Mathias Åhsberg, Michael Clarke
+ * Copyright (C) 2020-2022 Mathias Åhsberg, Michael Clarke
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -24,6 +24,7 @@ import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsight
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.CodeInsightsReport;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.DataValue;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.ReportData;
+import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.ReportStatus;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.Repository;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.server.Annotation;
 import com.github.mc1arke.sonarqube.plugin.almclient.bitbucket.model.server.BitbucketServerConfiguration;
@@ -36,11 +37,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import org.sonar.api.ce.posttask.QualityGate;
 import org.sonar.api.utils.log.Logger;
 import org.sonar.api.utils.log.Loggers;
-import org.sonar.db.alm.setting.AlmSettingDto;
-import org.sonar.db.alm.setting.ProjectAlmSettingDto;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -85,7 +83,7 @@ class BitbucketServerClient implements BitbucketClient {
     }
 
     @Override
-    public CodeInsightsReport createCodeInsightsReport(List<ReportData> reportData, String reportDescription, Instant creationDate, String dashboardUrl, String logoUrl, QualityGate.Status status) {
+    public CodeInsightsReport createCodeInsightsReport(List<ReportData> reportData, String reportDescription, Instant creationDate, String dashboardUrl, String logoUrl, ReportStatus status) {
         return new CreateReportRequest(
                 reportData,
                 reportDescription,
@@ -94,14 +92,15 @@ class BitbucketServerClient implements BitbucketClient {
                 creationDate,
                 dashboardUrl,
                 logoUrl,
-                QualityGate.Status.ERROR.equals(status) ? "FAIL" : "PASS"
+                ReportStatus.FAILED == status ? "FAIL" : "PASS"
         );
     }
 
-    public void deleteAnnotations(String project, String repository, String commit) throws IOException {
+    @Override
+    public void deleteAnnotations(String commit) throws IOException {
         Request req = new Request.Builder()
                 .delete()
-                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s/annotations", config.getUrl(), project, repository, commit, REPORT_KEY))
+                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s/annotations", config.getUrl(), config.getProject(), config.getRepository(), commit, REPORT_KEY))
                 .build();
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
@@ -109,7 +108,7 @@ class BitbucketServerClient implements BitbucketClient {
     }
 
     @Override
-    public void uploadAnnotations(String project, String repository, String commit, Set<CodeInsightsAnnotation> annotations) throws IOException {
+    public void uploadAnnotations(String commit, Set<CodeInsightsAnnotation> annotations) throws IOException {
         if (annotations.isEmpty()) {
             return;
         }
@@ -117,7 +116,7 @@ class BitbucketServerClient implements BitbucketClient {
         CreateAnnotationsRequest request = new CreateAnnotationsRequest(annotationSet);
         Request req = new Request.Builder()
                 .post(RequestBody.create(objectMapper.writeValueAsString(request), APPLICATION_JSON_MEDIA_TYPE))
-                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s/annotations", config.getUrl(), project, repository, commit, REPORT_KEY))
+                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s/annotations", config.getUrl(), config.getProject(), config.getRepository(), commit, REPORT_KEY))
                 .build();
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
@@ -130,11 +129,11 @@ class BitbucketServerClient implements BitbucketClient {
     }
 
     @Override
-    public void uploadReport(String project, String repository, String commit, CodeInsightsReport codeInsightReport) throws IOException {
+    public void uploadReport(String commit, CodeInsightsReport codeInsightReport) throws IOException {
         String body = objectMapper.writeValueAsString(codeInsightReport);
         Request req = new Request.Builder()
                 .put(RequestBody.create(body, APPLICATION_JSON_MEDIA_TYPE))
-                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s", config.getUrl(), project, repository, commit, REPORT_KEY))
+                .url(format("%s/rest/insights/1.0/projects/%s/repos/%s/commits/%s/reports/%s", config.getUrl(), config.getProject(), config.getRepository(), commit, REPORT_KEY))
                 .build();
 
         try (Response response = okHttpClient.newCall(req).execute()) {
@@ -166,20 +165,10 @@ class BitbucketServerClient implements BitbucketClient {
     }
 
     @Override
-    public String resolveProject(AlmSettingDto almSettingDto, ProjectAlmSettingDto projectAlmSettingDto) {
-        return projectAlmSettingDto.getAlmRepo();
-    }
-
-    @Override
-    public String resolveRepository(AlmSettingDto almSettingDto, ProjectAlmSettingDto projectAlmSettingDto) {
-        return projectAlmSettingDto.getAlmSlug();
-    }
-
-    @Override
-    public Repository retrieveRepository(String project, String repo) throws IOException {
+    public Repository retrieveRepository() throws IOException {
         Request req = new Request.Builder()
                 .get()
-                .url(format("%s/rest/api/1.0/projects/%s/repos/%s", config.getUrl(), project, repo))
+                .url(format("%s/rest/api/1.0/projects/%s/repos/%s", config.getUrl(), config.getProject(), config.getRepository()))
                 .build();
         try (Response response = okHttpClient.newCall(req).execute()) {
             validate(response);
